@@ -32,7 +32,7 @@ def zone_setpoint(live: dict | None, zone_id: str) -> float | None:
     if zone is None:
         return None
     temp = zone.get("temp")
-    return float(temp) if isinstance(temp, (int, float)) else None
+    return float(temp) if isinstance(temp, (int, float)) and not isinstance(temp, bool) else None
 
 
 def zone_is_on(live: dict | None, zone_id: str) -> bool | None:
@@ -42,7 +42,10 @@ def zone_is_on(live: dict | None, zone_id: str) -> bool | None:
     zone = _find_zone(live.get("zones"), zone_id)
     if zone is None or "on" not in zone:
         return None
-    return bool(zone.get("on"))
+    on_val = zone.get("on")
+    if not isinstance(on_val, bool):
+        return None
+    return on_val
 
 
 def zone_measured_temp(live: dict | None, zone_id: str) -> float | None:
@@ -56,4 +59,4 @@ def zone_measured_temp(live: dict | None, zone_id: str) -> float | None:
     if zone is None:
         return None
     temp = zone.get("temp")
-    return float(temp) if isinstance(temp, (int, float)) else None
+    return float(temp) if isinstance(temp, (int, float)) and not isinstance(temp, bool) else None

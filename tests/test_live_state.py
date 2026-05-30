@@ -71,3 +71,30 @@ def test_empty_and_malformed_live():
     assert live_state.zone_setpoint({}, "zone_a") is None
     assert live_state.zone_measured_temp({"status": {}}, "zone_a") is None
     assert live_state.zone_setpoint({"zones": "nonsense"}, "zone_a") is None
+
+
+def test_zero_temp_is_preserved():
+    live = {
+        "zones": [{"id": "zone_a", "temp": 0, "on": True}],
+        "status": {"zones": [{"id": "zone_a", "temp": 0.0}]},
+    }
+    assert live_state.zone_setpoint(live, "zone_a") == 0.0
+    assert live_state.zone_measured_temp(live, "zone_a") == 0.0
+
+
+def test_bool_temp_is_rejected():
+    live = {
+        "zones": [{"id": "zone_a", "temp": True, "on": True}],
+        "status": {"zones": [{"id": "zone_a", "temp": False}]},
+    }
+    assert live_state.zone_setpoint(live, "zone_a") is None
+    assert live_state.zone_measured_temp(live, "zone_a") is None
+
+
+def test_non_bool_on_is_unknown():
+    assert live_state.zone_is_on({"zones": [{"id": "zone_a", "on": None}]}, "zone_a") is None
+    assert live_state.zone_is_on({"zones": [{"id": "zone_a", "on": 1}]}, "zone_a") is None
+
+
+def test_measured_temp_malformed_status_zones():
+    assert live_state.zone_measured_temp({"status": {"zones": "nonsense"}}, "zone_a") is None
