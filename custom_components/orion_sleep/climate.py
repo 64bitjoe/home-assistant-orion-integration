@@ -1,4 +1,16 @@
-"""Climate platform for Orion Sleep."""
+"""Climate platform for Orion Sleep.
+
+One climate entity per device *zone* (zone_a, zone_b). Each entity reads
+and writes the verified live per-zone primitive
+(``PUT /v1/devices/{serial_number}/live/zones/{zoneId}``):
+
+* current temperature  <- live measured temp (status.zones[].temp)
+* target temperature   <- live setpoint (zones[].temp)
+* hvac mode            <- live zone ``on`` flag
+* set temperature / turn on / turn off  -> live per-zone write
+
+The live endpoint path uses the device ``serial_number``, NOT its UUID.
+"""
 
 from __future__ import annotations
 
@@ -26,34 +38,33 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Orion Sleep climate entities.
-
-    Creates one climate entity per device. The device has zones (zone_a, zone_b)
-    but both may be assigned to the same user. We create one entity per device
-    since temperature control appears to be device-level via schedules.
-    """
+    """Set up one climate entity per device zone (zone_a, zone_b)."""
     coordinator: OrionDataUpdateCoordinator = entry.runtime_data
-    entities: list[OrionClimateEntity] = []
+    entities: list[OrionZoneClimateEntity] = []
 
     for device in coordinator.devices:
         device_id = device.get("id")
-        if not device_id:
+        serial = device.get("serial_number")
+        if not device_id or not serial:
             continue
-        entities.append(OrionClimateEntity(coordinator, device_id, device))
+        for zone in device.get("zones") or []:
+            zone_id = zone.get("id")
+            if not zone_id:
+                continue
+            entities.append(
+                OrionZoneClimateEntity(coordinator, device_id, serial, zone_id, device)
+            )
 
     async_add_entities(entities)
 
 
-class OrionClimateEntity(OrionBaseEntity, ClimateEntity):
-    """Climate entity for an Orion Sleep bed.
+class OrionZoneClimateEntity(OrionBaseEntity, ClimateEntity):
+    """Climate entity for a single Orion bed zone.
 
-    Temperature data comes from the sleep schedule (bedtime_temp, wakeup_temp)
-    and the latest insights session temperature readings. The API uses Celsius
-    internally (temperature_range min=10, max=45).
-
-    The climate entity always works in absolute Celsius so that HA's unit
-    conversion (C->F) works correctly. The app-style relative offset values
-    are exposed as extra state attributes and via a dedicated sensor.
+    All state is read from the live per-zone snapshot and all writes go
+    through the live per-zone endpoint, so the two sides are fully
+    independent. The entity works in absolute Celsius so HA's C->F unit
+    conversion applies.
     """
 
     _attr_hvac_modes = [HVACMode.HEAT_COOL, HVACMode.OFF]
@@ -64,19 +75,21 @@ class OrionClimateEntity(OrionBaseEntity, ClimateEntity):
     )
     _attr_temperature_unit = UnitOfTemperature.CELSIUS
     _enable_turn_on_off_backwards_compat = False
-    _attr_translation_key = "bed_climate"
 
     def __init__(
         self,
         coordinator: OrionDataUpdateCoordinator,
         device_id: str,
+        serial: str,
+        zone_id: str,
         device: dict,
     ) -> None:
         super().__init__(coordinator, device_id)
-        self._device = device
-        self._attr_unique_id = f"{device_id}_climate"
+        self._serial = serial
+        self._zone_id = zone_id
+        self._attr_unique_id = f"{device_id}_climate_{zone_id}"
+        self._attr_translation_key = f"bed_climate_{zone_id}"
 
-        # Temperature range from device data (Celsius)
         temp_range = device.get("temperature_range", {})
         self._attr_min_temp = float(temp_range.get("min", 10))
         self._attr_max_temp = float(temp_range.get("max", 45))
@@ -84,68 +97,58 @@ class OrionClimateEntity(OrionBaseEntity, ClimateEntity):
 
     @property
     def current_temperature(self) -> float | None:
-        """Return the current bed temperature from the latest session."""
-        session = self.coordinator.get_latest_session()
-        if not session:
-            return None
-        temp_data = session.get("temperature", {})
-        values = temp_data.get("values", [])
-        if values:
-            return values[-1]
-        return None
+        """Measured temperature for this zone from the live snapshot."""
+        return self.coordinator.zone_measured_temp(self._device_id, self._zone_id)
 
     @property
     def target_temperature(self) -> float | None:
-        """Return the target temperature from today's schedule."""
-        schedule = self.coordinator.get_today_schedule()
-        if not schedule:
-            return None
-        return schedule.get("bedtime_temp")
+        """Setpoint temperature for this zone from the live snapshot."""
+        return self.coordinator.zone_setpoint(self._device_id, self._zone_id)
 
     @property
     def hvac_mode(self) -> HVACMode:
-        """Return the current HVAC mode.
-
-        Reports OFF whenever the device's live power state is off, even
-        if a schedule is active — the schedule won't drive the bed until
-        power is turned back on.
-        """
-        if self.coordinator.is_device_on(self._device_id) is False:
-            return HVACMode.OFF
-        schedule = self.coordinator.get_today_schedule()
-        if schedule and schedule.get("bedtime_is_active"):
+        """HEAT_COOL when the zone is on, otherwise OFF."""
+        if self.coordinator.zone_is_on(self._device_id, self._zone_id) is True:
             return HVACMode.HEAT_COOL
         return HVACMode.OFF
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
-        """Set target temperature."""
+        """Set this zone's target temperature.
+
+        If the zone is currently off, also turn it on so the setpoint
+        takes effect (standard HA expectation).
+        """
         temp = kwargs.get(ATTR_TEMPERATURE)
         if temp is None:
             return
-        await self.coordinator.api_client.set_temperature(
-            device_id=self._device_id,
-            temperature=temp,
+        turn_on = self.coordinator.zone_is_on(self._device_id, self._zone_id) is not True
+        await self.coordinator.api_client.update_live_device_zone(
+            self._serial,
+            self._zone_id,
+            on=True if turn_on else None,
+            temp=temp,
         )
         await self.coordinator.async_request_refresh()
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:
-        """Set HVAC mode (limited — schedule-based control)."""
-        # The API controls temperature through schedules, not direct on/off.
-        # Setting a temperature effectively turns it on.
-        _LOGGER.debug("set_hvac_mode called with %s", hvac_mode)
+        """Turn the zone on (HEAT_COOL) or off (OFF)."""
+        await self.coordinator.api_client.update_live_device_zone(
+            self._serial,
+            self._zone_id,
+            on=(hvac_mode == HVACMode.HEAT_COOL),
+        )
         await self.coordinator.async_request_refresh()
 
     async def async_turn_on(self) -> None:
-        """Turn on the climate entity."""
-        target = self.target_temperature
-        if target is not None:
-            await self.coordinator.api_client.set_temperature(
-                device_id=self._device_id,
-                temperature=target,
-            )
-            await self.coordinator.async_request_refresh()
+        """Turn this zone on."""
+        await self.coordinator.api_client.update_live_device_zone(
+            self._serial, self._zone_id, on=True
+        )
+        await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self) -> None:
-        """Turn off the climate entity."""
-        _LOGGER.debug("turn_off called — device is schedule-controlled")
+        """Turn this zone off."""
+        await self.coordinator.api_client.update_live_device_zone(
+            self._serial, self._zone_id, on=False
+        )
         await self.coordinator.async_request_refresh()
