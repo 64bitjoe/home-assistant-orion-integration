@@ -15,16 +15,20 @@ home-assistant-orion-integration/
 ├── custom_components/
 │   └── orion_sleep/
 │       ├── __init__.py                # async_setup_entry / async_unload_entry
-│       ├── manifest.json              # HA integration manifest (v1.0.0)
+│       ├── manifest.json              # HA integration manifest (v1.2.0)
 │       ├── const.py                   # DOMAIN, config keys, defaults, temp lookup table
 │       ├── api.py                     # Async aiohttp API client
 │       ├── coordinator.py             # DataUpdateCoordinator + data helpers
 │       ├── config_flow.py             # Three-step auth flow + options flow
 │       ├── entity.py                  # Base entity with DeviceInfo + temp conversion helpers
-│       ├── climate.py                 # Bed temperature control
-│       ├── sensor.py                  # Sleep insight + schedule + offset + WS state sensors (18 per device)
+│       ├── climate.py                 # Per-zone bed temperature control (+ HVAC action)
+│       ├── sensor.py                  # Per-zone insight + device schedule/score + diagnostics (firmware/wifi) + WS state + live per-sensor sensors
+│       ├── number.py                  # Schedule-offset sliders + LED brightness
+│       ├── button.py                  # Reboot button
+│       ├── live_state.py              # Live-snapshot accessors (zones, status, sensors)
+│       ├── util.py                    # Pure helpers (latest_session_for_zone, formatting)
 │       ├── websocket.py                # Live device WebSocket client (per-device aiohttp)
-│       ├── binary_sensor.py           # Sleep session active
+│       ├── binary_sensor.py           # Per-zone sleep session active + on-bed + problem
 │       ├── switch.py                  # Power (user-away) + sleep schedule switches
 │       ├── diagnostics.py             # Diagnostics with PII redaction
 │       ├── strings.json               # UI translations
@@ -129,6 +133,13 @@ https://api1.orionbed.com
 - **Auth flow**: Three-step config flow (pick method -> enter email/phone -> enter verification code) + re-auth support
 - **Options flow**: Configurable `scan_interval` (60-3600s) and `insights_days` (1-30 days)
 - **Temperature conversion**: `OrionBaseEntity` provides `_celsius_to_offset()` and `_offset_to_celsius()` using per-device lookup table (falls back to `DEFAULT_RELATIVE_TEMP_TABLE` in `const.py`)
+- **Coordinator helpers** (entities read state through these, not raw dicts):
+  - `get_latest_session_for_zone(zone_id)` — per-zone latest insight session (wraps `util.latest_session_for_zone`)
+  - `firmware(device_id)` / `network_info(device_id)` / `wifi_rssi(device_id)` — diagnostics from the live `status.firmware` / `status.network`
+  - `safety_error(device_id)` — bool from `status.safety.error` (Problem binary sensor)
+  - `led_brightness(device_id)` — live `led_brightness` (LED Brightness number)
+  - `zone_thermal_state(device_id, zone_id)` — measured `status.zones[].thermal_state` (climate HVAC action)
+  - `util.latest_session_for_zone(insights_data, zone_id)` — pure selector used by the coordinator
 
 ### Data Flow
 
@@ -160,12 +171,15 @@ Per-device live WebSocket (wss://live.api1.orionbed.com/device/<serial>):
        |
        v
 Entities read from coordinator:
-  - Climate: schedule (target temp, HVAC mode) + session (current temp)
-  - Number: per-phase app-style temperature offsets (-10..+10)
-  - Sensors: insights sessions + schedule + overview scores
+  - Climate: live setpoint/measured temp + HVAC mode/action (per zone)
+  - Number: per-phase app-style temperature offsets (-10..+10) + LED brightness
+  - Button: reboot (device_action)
+  - Sensors: per-zone insights sessions + device schedule + overview score
              + per-topper-sensor live HR/BR/status (from WS)
-  - Binary sensors: session.is_in_progress
+             + diagnostics (firmware, wifi signal)
+  - Binary sensors: per-zone session.is_in_progress
                     + per-topper-sensor occupancy (from WS)
+                    + problem (safety error)
   - Switches: device zones (power) + user-away (away mode)
               + schedule.bedtime_is_active
   - Diagnostic sensors: per-device WS connection state
@@ -176,30 +190,33 @@ Entities read from coordinator:
 
 | Platform | Entity | Key / unique_id suffix | Data Source |
 |----------|--------|----------------------|-------------|
-| Climate | Bed Climate Zone A/B | `_climate_zone_a` / `_climate_zone_b` | One entity per zone. Target temp from live setpoint `zones[].temp`, current from measured `status.zones[].temp`, HVAC mode from `zones[].on`. Writes via `PUT /v1/devices/{serial}/live/zones/{zoneId}`. |
-| Sensor | Sleep Score | `_sleep_score` | `insights.overview.{latest_date}.score` with `quality_rating` extra attr |
-| Sensor | Total Sleep Time | `_total_sleep_time` | `session.sleep_summary.time_asleep` (formatted as "Xh Ym") |
-| Sensor | Deep Sleep Time | `_deep_sleep_time` | `session.sleep_summary.deep_sleep` |
-| Sensor | REM Sleep Time | `_rem_sleep_time` | `session.sleep_summary.rem_sleep` |
-| Sensor | Light Sleep Time | `_light_sleep_time` | `session.sleep_summary.light_sleep` |
-| Sensor | Awake Time | `_awake_time` | `session.sleep_summary.awake_time` |
-| Sensor | Heart Rate Average | `_heart_rate_avg` | `session.heart_rate.average` + min/max/range extra attrs |
-| Sensor | Breath Rate | `_breath_rate` | `session.breath_rate.average` + min/max/range extra attrs |
-| Sensor | HRV | `_hrv` | `session.hrv.average` + min/max extra attrs |
-| Sensor | Body Movement Rate | `_body_movement_rate` | `session.movement.movement_rate` |
-| Sensor | Restless Time | `_restless_time` | `session.movement.total_seconds` (formatted as "Xm Ys") |
+| Climate | Bed Climate Zone A/B | `_climate_zone_a` / `_climate_zone_b` | One entity per zone. Target temp from live setpoint `zones[].temp`, current from measured `status.zones[].temp`, HVAC mode from `zones[].on`. **HVAC action** (heating/idle/off) derived from `status.zones[].thermal_state` via `zone_thermal_state`. Writes via `PUT /v1/devices/{serial}/live/zones/{zoneId}`. |
+| Sensor | Sleep Score | `_sleep_score` | **Device-level.** `insights.overview.{latest_date}.score` with `quality_rating` extra attr |
+| Sensor | Total Sleep Time (per zone) | `_total_sleep_time_{zone_id}` | `session.sleep_summary.time_asleep` (formatted as "Xh Ym"). Name carries " Zone A"/" Zone B" suffix. |
+| Sensor | Deep Sleep Time (per zone) | `_deep_sleep_time_{zone_id}` | `session.sleep_summary.deep_sleep` |
+| Sensor | REM Sleep Time (per zone) | `_rem_sleep_time_{zone_id}` | `session.sleep_summary.rem_sleep` |
+| Sensor | Light Sleep Time (per zone) | `_light_sleep_time_{zone_id}` | `session.sleep_summary.light_sleep` |
+| Sensor | Awake Time (per zone) | `_awake_time_{zone_id}` | `session.sleep_summary.awake_time` |
+| Sensor | Heart Rate Average (per zone) | `_heart_rate_avg_{zone_id}` | `session.heart_rate.average` + min/max/range extra attrs |
+| Sensor | Breath Rate (per zone) | `_breath_rate_{zone_id}` | `session.breath_rate.average` + min/max/range extra attrs |
+| Sensor | HRV (per zone) | `_hrv_{zone_id}` | `session.hrv.average` + min/max extra attrs |
+| Sensor | Body Movement Rate (per zone) | `_body_movement_rate_{zone_id}` | `session.movement.movement_rate` |
+| Sensor | Restless Time (per zone) | `_restless_time_{zone_id}` | `session.movement.total_seconds` (formatted as "Xm Ys") |
+| Sensor | Current Temp Offset (per zone) | `_current_temp_offset_{zone_id}` | Per-zone latest session `temperature.values[-1]` converted to app-style offset. |
+| Sensor (diag) | Firmware Version | `_firmware_version` | Interface-board fw from `status.firmware`; per-sensor fw/hw as extra attrs. |
+| Sensor (diag) | Wi-Fi Signal | `_wifi_signal` | `status.network.rssi` (dBm); SSID/IP/MAC/uptime/last_seen as extra attrs. |
 | Sensor | Bedtime | `_bedtime` | `today_sleep_schedule.bedtime` (HH:mm) |
 | Sensor | Wake-up Time | `_wakeup_time` | `today_sleep_schedule.wakeup` |
 | Sensor | Schedule Duration | `_schedule_duration` | Calculated from bedtime/wakeup (handles overnight) |
 | Sensor | Bedtime Temperature | `_bedtime_temp` | `today_sleep_schedule.bedtime_temp` + phase/smart temp extra attrs |
 | Sensor | Wake-up Temperature | `_wakeup_temp` | `today_sleep_schedule.wakeup_temp` |
-| Sensor | Current Temp Offset | `_current_temp_offset` | Latest session `temperature.values[-1]` converted to app-style offset. **Registered twice (pre-existing bug), see Known Issues.** |
 | Sensor (diag) | Live Connection | `_websocket_state` | WS connection state (`connecting`/`connected`/`reconnecting`/`device_offline`/`auth_failed`/`stopped`) plus `seconds_since_last_message` extra attr |
 | Sensor | Sensor 1/2 Heart Rate | `_sensorN_live_heart_rate` | WS `status.sensors.sensorN.heart_rate` (bpm). `0` (empty bed) and `255` (no reading yet) both mapped to `None`. |
 | Sensor | Sensor 1/2 Breath Rate | `_sensorN_live_breath_rate` | WS `status.sensors.sensorN.breath_rate` (br/min). Same sentinel handling. |
 | Sensor (diag) | Sensor 1/2 Status | `_sensorN_sensor_status` | Raw `status_text`: observed `left_bed` (empty) and `normal` (occupied). |
-| Binary Sensor | Sleep Session Active | `_session_active` | `session.is_in_progress` (shows "Asleep" / "Not asleep") |
+| Binary Sensor | Sleep Session Zone A/B | `_session_active_{zone_id}` | Per-zone `session.is_in_progress` via `get_latest_session_for_zone` (shows "Asleep" / "Not asleep") |
 | Binary Sensor | Sensor 1/2 On Bed | `_sensorN_on_bed` | Occupancy device class. `status_text != "left_bed"`. The WS push itself is realtime, but the topper takes ~30s–1min to decide someone has sat down or left, so `status_text` transitions lag the real event. |
+| Binary Sensor (diag) | Problem | `_problem` | `problem` device class. `status.safety.error` via `safety_error`; error codes/descriptions as extra attrs. |
 | Switch | Power | `_power` | On = all zones on, Off = all zones off. Uses `PUT /v1/devices/{id}/live` (canonical power primitive). State read from each zone's `on`/`is_on` field. |
 | Switch | Away Mode | `_away_mode` | On = user marked away, Off = user present. State read from `zones[*].user` (null across all zones = away). `POST /v1/sleep-configurations/user-away`. Returns `400 "User has no previous device to return to"` on no-op toggle — swallowed in the switch. |
 | Switch | Sleep Schedule | `_sleep_schedule` | `today_sleep_schedule.bedtime_is_active`. Toggle via `update_sleep_schedule`. |
@@ -207,12 +224,16 @@ Entities read from coordinator:
 | Number | Asleep Phase 1 Offset | `_phase_1_temp_offset` | As above, `phase_1_temp` field. |
 | Number | Asleep Phase 2 Offset | `_phase_2_temp_offset` | As above, `phase_2_temp` field. |
 | Number | Wake Up Temperature Offset | `_wakeup_temp_offset` | As above, `wakeup_temp` field. |
+| Number | LED Brightness | `_led_brightness` | 0–100. Reads live `led_brightness` via coordinator; writes via `device_action(device_id, "device_led_brightness", value=int)`. **Unverified on-wire.** |
+| Button | Reboot | `_reboot` | Reboots via `device_action(device_id, "device_reboot")`. **Unverified on-wire.** |
 
-**Per device: 2 climate (one per zone) + 4 number + 24 sensors + 3 binary sensors + 3 switches = 36 entities**
+**Per device: 2 climate + 6 number + 1 button + 37 sensors + 5 binary sensors + 3 switches = 54 entities**
 
-- 24 sensors = 11 insights + 5 schedule + 1 current-temp-offset + 1 live-connection + 6 per-sensor live (2× HR + 2× BR + 2× diag status_text). The current-temp-offset is accidentally registered twice (same unique_id, HA keeps one) — the 24 count reflects the logical set.
-- 4 number sliders: one per schedule-phase temperature offset (bedtime / phase_1 / phase_2 / wakeup).
-- 3 binary sensors: Sleep Session Active + 2× On Bed (sensor1/sensor2).
+- 2 climate: one per zone (zone_a / zone_b), each with HVAC action.
+- 6 number: 4 schedule-phase offsets (bedtime / phase_1 / phase_2 / wakeup) + 1 LED brightness.
+- 1 button: Reboot.
+- 37 sensors = 22 per-zone insights (11 metrics × 2 zones: total/deep/rem/light sleep, awake, HR, BR, HRV, movement, restless, current-temp-offset) + 1 sleep score (device-level) + 5 schedule + 1 live-connection (WS state) + 2 diagnostics (firmware + wifi) + 6 per-sensor live (2× HR + 2× BR + 2× diag status_text).
+- 5 binary sensors: 2× Sleep Session Active (per zone) + 2× On Bed (sensor1/sensor2) + 1 Problem.
 - 3 switches: Power, Away Mode, Sleep Schedule.
 
 ### Sensor Implementation Notes
@@ -243,7 +264,7 @@ Entities read from coordinator:
 | `update_device(device_id, **fields)` | `PUT /v1/devices/{deviceId}` | Metadata updates (name/orientation/timezone) |
 | `update_live_device_zones(device_id, zones)` | `PUT /v1/devices/{deviceId}/live` | **Canonical power primitive** (used by power switch) |
 | `update_live_device_zone(device_id, zone_id, on=, temp=)` | `PUT /v1/devices/{deviceId}/live/zones/{zoneId}` | Per-zone power/temp |
-| `device_action(device_id, action, value=)` | `POST /v1/devices/{deviceId}/action` | quiet_mode/reboot/etc. — NOT for power |
+| `device_action(device_id, action, value=)` | `POST /v1/devices/{deviceId}/action` | quiet_mode/reboot/LED/etc. — NOT for power. Used by LED Brightness number (`device_led_brightness`) and Reboot button (`device_reboot`); both **unverified on-wire**. |
 | `activate_device(device_id, model)` | `POST /v1/devices/{deviceId}/activate` | Pair device |
 | `deactivate_device(device_id)` | `POST /v1/devices/{deviceId}/deactivate` | Unpair device |
 | `trigger_firmware_update(device_id)` | `POST /v1/devices/{deviceId}/update` | Firmware update |
@@ -337,15 +358,14 @@ Notable:
 
 ## Known Issues
 
-- **Duplicate entity**: `OrionCurrentTempOffsetSensor` is appended twice per device in `sensor.py:351-352` (same `unique_id`, HA will reject or warn about the second)
+- **Migration (1.2.0)**: the old device-level insight sensors (`{device_id}_hrv`, `_heart_rate_avg`, `_total_sleep_time`, the sleep-stage durations, `_body_movement_rate`, `_restless_time`), the single `_session_active`, and the single `_current_temp_offset` are retired in favor of per-zone (`_{key}_{zone_id}`) versions. The retired entities show as `unavailable` until deleted from the entity registry.
 - **Unused translations**: none for climate — `bed_climate_zone_a` / `bed_climate_zone_b` are both in use.
 
 ## Known Limitations / Future Work
 
 - `set_temperature` endpoint not verified against live API
 - Schedule enable/disable (`PUT /v1/sleep-schedules?action=enable`) not verified
-- Climate is now per-zone and live-driven: `async_turn_on` / `async_turn_off` / `async_set_hvac_mode` write the zone `on` flag via `PUT /v1/devices/{serial}/live/zones/{zoneId}` and take effect immediately (no longer no-ops).
-- Firmware versions are not exposed as dedicated entities yet (available in the WS payload at `status.firmware.{cb,ib}` and on each sensor block's `firmware_version` — plumb through if surfacing them becomes useful)
+- `device_led_brightness` and `device_reboot` actions (`POST /v1/devices/{id}/action`) are now wired to the LED Brightness number and Reboot button, but remain **unverified on-wire** (pending live confirmation).
 - HRV values frequently null in real data
 - No way to start/stop sleep sessions via API
 - Zone splitting/merging not supported
