@@ -188,6 +188,16 @@ Entities read from coordinator:
 
 ## Entities
 
+**Device structure:** per topper there are three HA devices — the hub
+(`identifiers={(DOMAIN, device_id)}`) and two sub-devices Side A / Side B
+(`identifiers={(DOMAIN, f"{device_id}_zone_a|zone_b")}`, `via_device` → hub).
+Hub-hosted: switches, schedule sensors + offset numbers, LED brightness, reboot,
+sleep score, diagnostics (live connection, firmware, wifi, problem), and the live
+Sensor 1/2 vitals (their side mapping is still unverified). Side-hosted: that
+zone's climate, per-zone insight sensors, current temp offset, and session-active
+binary sensor. Built via the optional `zone_id` on `OrionBaseEntity` +
+`util.side_device_descriptor`. Entity unique_ids are unchanged by the split.
+
 | Platform | Entity | Key / unique_id suffix | Data Source |
 |----------|--------|----------------------|-------------|
 | Climate | Bed Climate Zone A/B | `_climate_zone_a` / `_climate_zone_b` | One entity per zone. Target temp from live setpoint `zones[].temp`, current from measured `status.zones[].temp`, HVAC mode from `zones[].on`. **HVAC action** (heating/idle/off) derived from `status.zones[].thermal_state` via `zone_thermal_state`. Writes via `PUT /v1/devices/{serial}/live/zones/{zoneId}`. |

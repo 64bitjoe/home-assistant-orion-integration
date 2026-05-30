@@ -80,7 +80,7 @@ The live connection is fully automatic — there is no option to disable it toda
 
 ## Entities
 
-One device is created per paired topper. Each device exposes the entities listed below. Entity names below use the integration's default translation strings.
+Each paired topper is represented as three Home Assistant devices: an **Orion Hub** (whole-bed controls, schedule, diagnostics, and the live per-sensor readings) with two sub-devices, **Side A** and **Side B**, nested under it. Each Side holds that side's climate plus its per-session sleep metrics (HRV, heart rate, sleep stages, etc.). The Side names default to "Side A" / "Side B" — rename them in the HA UI (Settings > Devices & Services > device > rename) if you like. Entity names below use the integration's default translation strings.
 
 ### Upgrading to 1.2.0
 
