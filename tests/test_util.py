@@ -90,3 +90,20 @@ def test_latest_session_for_zone_empty_and_malformed():
 def test_latest_session_for_zone_ignores_sessions_without_zone_id():
     data = {"2026-05-29": {"sessions": [{"session_id": "x"}]}}
     assert util.latest_session_for_zone(data, "zone_a") is None
+
+
+def test_side_device_descriptor_zone_a():
+    d = util.side_device_descriptor("dev123", "zone_a")
+    assert d == {"identifier": "dev123_zone_a", "via": "dev123", "name": "Side A"}
+
+
+def test_side_device_descriptor_zone_b():
+    d = util.side_device_descriptor("dev123", "zone_b")
+    assert d == {"identifier": "dev123_zone_b", "via": "dev123", "name": "Side B"}
+
+
+def test_side_device_descriptor_unknown_zone_uses_raw_id():
+    d = util.side_device_descriptor("dev123", "zone_c")
+    assert d["identifier"] == "dev123_zone_c"
+    assert d["via"] == "dev123"
+    assert d["name"] == "Side zone_c"

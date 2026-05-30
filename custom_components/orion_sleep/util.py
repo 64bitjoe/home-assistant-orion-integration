@@ -60,3 +60,19 @@ def latest_session_for_zone(insights_data: object, zone_id: str) -> dict | None:
         if match is not None:
             return match
     return None
+
+
+def side_device_descriptor(device_id: str, zone_id: str) -> dict:
+    """Describe the per-side sub-device for a zone.
+
+    Returns the identifier suffix, the hub it links to via ``via_device``, and
+    the display name. ``zone_a`` -> "Side A", ``zone_b`` -> "Side B"; any other
+    zone id falls back to ``f"Side {zone_id}"``.
+    """
+    labels = {"zone_a": "A", "zone_b": "B"}
+    label = labels.get(zone_id, zone_id)
+    return {
+        "identifier": f"{device_id}_{zone_id}",
+        "via": device_id,
+        "name": f"Side {label}",
+    }
