@@ -68,7 +68,7 @@
     },
     "binary_sensor": {
       "sleep_session_active": {
-        "name": "Sleep Session",
+        "name": "Sleep Session {zone}",
         "state": {
           "on": "Asleep",
           "off": "Not asleep"
@@ -116,34 +116,34 @@
         "name": "Sleep Score"
       },
       "total_sleep_time": {
-        "name": "Total Sleep Time"
+        "name": "Total Sleep Time {zone}"
       },
       "deep_sleep_time": {
-        "name": "Deep Sleep"
+        "name": "Deep Sleep {zone}"
       },
       "rem_sleep_time": {
-        "name": "REM Sleep"
+        "name": "REM Sleep {zone}"
       },
       "light_sleep_time": {
-        "name": "Light Sleep"
+        "name": "Light Sleep {zone}"
       },
       "awake_time": {
-        "name": "Awake Time"
+        "name": "Awake Time {zone}"
       },
       "heart_rate_avg": {
-        "name": "Heart Rate"
+        "name": "Heart Rate {zone}"
       },
       "breath_rate": {
-        "name": "Breath Rate"
+        "name": "Breath Rate {zone}"
       },
       "hrv": {
-        "name": "HRV"
+        "name": "HRV {zone}"
       },
       "body_movement_rate": {
-        "name": "Body Movement Rate"
+        "name": "Body Movement Rate {zone}"
       },
       "restless_time": {
-        "name": "Restless Time"
+        "name": "Restless Time {zone}"
       },
       "bedtime": {
         "name": "Bedtime"
@@ -161,7 +161,7 @@
         "name": "Wake Up Temperature"
       },
       "current_temp_offset": {
-        "name": "Current Temperature Offset"
+        "name": "Current Temperature Offset {zone}"
       },
       "websocket_state": {
         "name": "Live Connection",

@@ -140,15 +140,6 @@ class OrionSensorEntityDescription(SensorEntityDescription):
 
 INSIGHT_SENSOR_DESCRIPTIONS: tuple[OrionSensorEntityDescription, ...] = (
     OrionSensorEntityDescription(
-        key="sleep_score",
-        translation_key="sleep_score",
-        native_unit_of_measurement="points",
-        state_class=SensorStateClass.MEASUREMENT,
-        icon="mdi:medal-outline",
-        value_fn=lambda session: None,  # handled specially in the entity
-        extra_attrs_fn=lambda session: {},  # handled specially in the entity
-    ),
-    OrionSensorEntityDescription(
         key="total_sleep_time",
         translation_key="total_sleep_time",
         icon="mdi:sleep",
@@ -345,17 +336,19 @@ async def async_setup_entry(
     coordinator: OrionDataUpdateCoordinator = entry.runtime_data
     entities: list[SensorEntity] = []
 
+    zone_labels = {"zone_a": "Zone A", "zone_b": "Zone B"}
+
     for device in coordinator.devices:
         device_id = device.get("id")
         if not device_id:
             continue
-        for description in INSIGHT_SENSOR_DESCRIPTIONS:
-            entities.append(OrionSensorEntity(coordinator, device_id, description))
+
+        # Device-level sensors.
+        entities.append(OrionSleepScoreSensor(coordinator, device_id))
         for description in SCHEDULE_SENSOR_DESCRIPTIONS:
             entities.append(
                 OrionScheduleSensorEntity(coordinator, device_id, description)
             )
-        entities.append(OrionCurrentTempOffsetSensor(coordinator, device_id))
         entities.append(OrionWebSocketStateSensor(coordinator, device_id))
         entities.append(OrionFirmwareSensor(coordinator, device_id))
         entities.append(OrionWifiSignalSensor(coordinator, device_id))
@@ -370,14 +363,32 @@ async def async_setup_entry(
                 OrionSensorStatusTextSensor(coordinator, device_id, sensor_name)
             )
 
+        # Per-zone insight sensors + current temp offset.
+        for zone in device.get("zones") or []:
+            zone_id = zone.get("id")
+            if not zone_id:
+                continue
+            zone_label = zone_labels.get(zone_id, zone_id)
+            for description in INSIGHT_SENSOR_DESCRIPTIONS:
+                entities.append(
+                    OrionZoneInsightSensor(
+                        coordinator, device_id, zone_id, zone_label, description
+                    )
+                )
+            entities.append(
+                OrionCurrentTempOffsetSensor(
+                    coordinator, device_id, zone_id, zone_label
+                )
+            )
+
     async_add_entities(entities)
 
 
 # ── Entities ──────────────────────────────────────────────────────────────
 
 
-class OrionSensorEntity(OrionBaseEntity, SensorEntity):
-    """Sensor entity for Orion Sleep insights."""
+class OrionZoneInsightSensor(OrionBaseEntity, SensorEntity):
+    """Per-zone sleep-insight sensor (reads that zone's latest session)."""
 
     entity_description: OrionSensorEntityDescription
 
@@ -385,45 +396,58 @@ class OrionSensorEntity(OrionBaseEntity, SensorEntity):
         self,
         coordinator: OrionDataUpdateCoordinator,
         device_id: str,
+        zone_id: str,
+        zone_label: str,
         description: OrionSensorEntityDescription,
     ) -> None:
         super().__init__(coordinator, device_id)
         self.entity_description = description
-        self._attr_unique_id = f"{device_id}_{description.key}"
+        self._zone_id = zone_id
+        self._attr_unique_id = f"{device_id}_{description.key}_{zone_id}"
+        self._attr_translation_placeholders = {"zone": zone_label}
 
     @property
     def native_value(self) -> Any:
-        """Return the sensor value."""
-        if not self.coordinator.data:
-            return None
-
-        # Sleep score is special — comes from overview, not session
-        if self.entity_description.key == "sleep_score":
-            return _get_score(self.coordinator.data)
-
-        session = self.coordinator.get_latest_session()
+        session = self.coordinator.get_latest_session_for_zone(self._zone_id)
         return self.entity_description.value_fn(session)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return extra state attributes."""
-        if not self.coordinator.data:
-            return None
-
-        # Sleep score gets the quality rating
-        if self.entity_description.key == "sleep_score":
-            score = _get_score(self.coordinator.data)
-            quality = _score_quality(score)
-            if quality:
-                return {"quality_rating": quality}
-            return None
-
         if self.entity_description.extra_attrs_fn is None:
             return None
-        session = self.coordinator.get_latest_session()
+        session = self.coordinator.get_latest_session_for_zone(self._zone_id)
         attrs = self.entity_description.extra_attrs_fn(session)
-        # Filter out None values
         return {k: v for k, v in attrs.items() if v is not None} or None
+
+
+class OrionSleepScoreSensor(OrionBaseEntity, SensorEntity):
+    """Device-level sleep score from the insights overview (daily aggregate)."""
+
+    _attr_translation_key = "sleep_score"
+    _attr_native_unit_of_measurement = "points"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:medal-outline"
+
+    def __init__(
+        self,
+        coordinator: OrionDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        super().__init__(coordinator, device_id)
+        self._attr_unique_id = f"{device_id}_sleep_score"
+
+    @property
+    def native_value(self) -> float | None:
+        if not self.coordinator.data:
+            return None
+        return _get_score(self.coordinator.data)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        if not self.coordinator.data:
+            return None
+        quality = _score_quality(_get_score(self.coordinator.data))
+        return {"quality_rating": quality} if quality else None
 
 
 class OrionScheduleSensorEntity(OrionBaseEntity, SensorEntity):
@@ -477,14 +501,18 @@ class OrionCurrentTempOffsetSensor(OrionBaseEntity, SensorEntity):
         self,
         coordinator: OrionDataUpdateCoordinator,
         device_id: str,
+        zone_id: str,
+        zone_label: str,
     ) -> None:
         super().__init__(coordinator, device_id)
-        self._attr_unique_id = f"{device_id}_current_temp_offset"
+        self._zone_id = zone_id
+        self._attr_unique_id = f"{device_id}_current_temp_offset_{zone_id}"
+        self._attr_translation_placeholders = {"zone": zone_label}
 
     @property
     def native_value(self) -> float | None:
-        """Return the current measured temperature offset."""
-        session = self.coordinator.get_latest_session()
+        """Return the current measured temperature offset for this zone."""
+        session = self.coordinator.get_latest_session_for_zone(self._zone_id)
         if not session:
             return None
         temp_data = session.get("temperature", {})

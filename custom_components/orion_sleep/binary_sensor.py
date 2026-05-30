@@ -35,11 +35,20 @@ async def async_setup_entry(
     coordinator: OrionDataUpdateCoordinator = entry.runtime_data
     entities: list[BinarySensorEntity] = []
 
+    zone_labels = {"zone_a": "Zone A", "zone_b": "Zone B"}
     for device in coordinator.devices:
         device_id = device.get("id")
         if not device_id:
             continue
-        entities.append(OrionSessionActiveBinarySensor(coordinator, device_id))
+        for zone in device.get("zones") or []:
+            zone_id = zone.get("id")
+            if not zone_id:
+                continue
+            entities.append(
+                OrionSessionActiveBinarySensor(
+                    coordinator, device_id, zone_id, zone_labels.get(zone_id, zone_id)
+                )
+            )
         for sensor_name in _TOPPER_SENSORS:
             entities.append(
                 OrionSensorOnBedBinarySensor(coordinator, device_id, sensor_name)
@@ -68,14 +77,18 @@ class OrionSessionActiveBinarySensor(OrionBaseEntity, BinarySensorEntity):
         self,
         coordinator: OrionDataUpdateCoordinator,
         device_id: str,
+        zone_id: str,
+        zone_label: str,
     ) -> None:
         super().__init__(coordinator, device_id)
-        self._attr_unique_id = f"{device_id}_session_active"
+        self._zone_id = zone_id
+        self._attr_unique_id = f"{device_id}_session_active_{zone_id}"
+        self._attr_translation_placeholders = {"zone": zone_label}
 
     @property
     def is_on(self) -> bool | None:
-        """Return True if a sleep session is currently active."""
-        session = self.coordinator.get_latest_session()
+        """Return True if this zone's sleep session is currently active."""
+        session = self.coordinator.get_latest_session_for_zone(self._zone_id)
         if not session:
             return False
         return session.get("is_in_progress", False)
