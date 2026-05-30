@@ -46,7 +46,7 @@ async def async_setup_entry(
 ) -> None:
     """Set up Orion Sleep number entities."""
     coordinator: OrionDataUpdateCoordinator = entry.runtime_data
-    entities: list[OrionTempOffsetNumber] = []
+    entities: list[NumberEntity] = []
 
     for device in coordinator.devices:
         device_id = device.get("id")
@@ -58,6 +58,7 @@ async def async_setup_entry(
                     coordinator, device_id, key, trans_key, icon, field
                 )
             )
+        entities.append(OrionLedBrightnessNumber(coordinator, device_id))
 
     async_add_entities(entities)
 
@@ -121,5 +122,34 @@ class OrionTempOffsetNumber(OrionBaseEntity, NumberEntity):
             day=day,
             field=self._schedule_field,
             celsius=celsius,
+        )
+        await self.coordinator.async_request_refresh()
+
+
+class OrionLedBrightnessNumber(OrionBaseEntity, NumberEntity):
+    """LED brightness (0-100). Reads live state; writes via device_action."""
+
+    _attr_native_min_value = 0
+    _attr_native_max_value = 100
+    _attr_native_step = 1
+    _attr_mode = NumberMode.SLIDER
+    _attr_translation_key = "led_brightness"
+    _attr_icon = "mdi:brightness-6"
+
+    def __init__(
+        self,
+        coordinator: OrionDataUpdateCoordinator,
+        device_id: str,
+    ) -> None:
+        super().__init__(coordinator, device_id)
+        self._attr_unique_id = f"{device_id}_led_brightness"
+
+    @property
+    def native_value(self) -> float | None:
+        return self.coordinator.led_brightness(self._device_id)
+
+    async def async_set_native_value(self, value: float) -> None:
+        await self.coordinator.api_client.device_action(
+            self._device_id, "device_led_brightness", value=int(value)
         )
         await self.coordinator.async_request_refresh()

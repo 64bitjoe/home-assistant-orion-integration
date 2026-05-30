@@ -82,6 +82,9 @@
       },
       "device_problem": { "name": "Problem" }
     },
+    "button": {
+      "reboot": { "name": "Reboot" }
+    },
     "switch": {
       "power": {
         "name": "Power"
@@ -105,7 +108,8 @@
       },
       "wakeup_temp_offset": {
         "name": "Wake Up Temperature Offset"
-      }
+      },
+      "led_brightness": { "name": "LED Brightness" }
     },
     "sensor": {
       "sleep_score": {
