@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
@@ -10,6 +11,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import OrionDataUpdateCoordinator
@@ -42,6 +44,7 @@ async def async_setup_entry(
             entities.append(
                 OrionSensorOnBedBinarySensor(coordinator, device_id, sensor_name)
             )
+        entities.append(OrionProblemBinarySensor(coordinator, device_id))
 
     async_add_entities(entities)
 
@@ -123,3 +126,29 @@ class OrionSensorOnBedBinarySensor(OrionBaseEntity, BinarySensorEntity):
             self.coordinator.sensor_status_text(self._device_id, self._sensor_name)
             is not None
         )
+
+
+class OrionProblemBinarySensor(OrionBaseEntity, BinarySensorEntity):
+    """Diagnostic: device safety/error state from the live payload."""
+
+    _attr_translation_key = "device_problem"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: OrionDataUpdateCoordinator, device_id: str) -> None:
+        super().__init__(coordinator, device_id)
+        self._attr_unique_id = f"{device_id}_problem"
+
+    @property
+    def is_on(self) -> bool | None:
+        return self.coordinator.safety_error(self._device_id)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        live = self.coordinator.live_devices.get(self._device_id) or {}
+        safety = (live.get("status") or {}).get("safety") or {}
+        attrs = {
+            "error_codes": safety.get("error_codes"),
+            "error_descriptions": safety.get("error_descriptions"),
+        }
+        return {k: v for k, v in attrs.items() if v} or None

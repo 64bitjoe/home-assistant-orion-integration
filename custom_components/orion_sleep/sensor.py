@@ -8,6 +8,7 @@ import logging
 from typing import Any
 
 from homeassistant.components.sensor import (
+    SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
@@ -356,6 +357,8 @@ async def async_setup_entry(
             )
         entities.append(OrionCurrentTempOffsetSensor(coordinator, device_id))
         entities.append(OrionWebSocketStateSensor(coordinator, device_id))
+        entities.append(OrionFirmwareSensor(coordinator, device_id))
+        entities.append(OrionWifiSignalSensor(coordinator, device_id))
         for sensor_name in _TOPPER_SENSORS:
             entities.append(
                 OrionLiveHeartRateSensor(coordinator, device_id, sensor_name)
@@ -653,3 +656,67 @@ class OrionSensorStatusTextSensor(_OrionLiveSensorBase):
     @property
     def native_value(self) -> str | None:
         return self.coordinator.sensor_status_text(self._device_id, self._sensor_name)
+
+
+class OrionFirmwareSensor(OrionBaseEntity, SensorEntity):
+    """Diagnostic: control-board firmware version (interface board + per-sensor as attrs)."""
+
+    _attr_translation_key = "firmware_version"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:chip"
+
+    def __init__(self, coordinator: OrionDataUpdateCoordinator, device_id: str) -> None:
+        super().__init__(coordinator, device_id)
+        self._attr_unique_id = f"{device_id}_firmware_version"
+
+    @property
+    def native_value(self) -> str | None:
+        fw = self.coordinator.firmware(self._device_id)
+        return fw.get("cb") if fw else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        attrs: dict[str, Any] = {}
+        fw = self.coordinator.firmware(self._device_id)
+        if fw and fw.get("ib") is not None:
+            attrs["interface_board"] = fw["ib"]
+        for name in _TOPPER_SENSORS:
+            block = self.coordinator._sensor_block(self._device_id, name)  # noqa: SLF001
+            if block:
+                if block.get("firmware_version") is not None:
+                    attrs[f"{name}_firmware"] = block["firmware_version"]
+                if block.get("hardware_version") is not None:
+                    attrs[f"{name}_hardware"] = block["hardware_version"]
+        return attrs or None
+
+
+class OrionWifiSignalSensor(OrionBaseEntity, SensorEntity):
+    """Diagnostic: Wi-Fi signal strength (SSID/IP/MAC/uptime as attributes)."""
+
+    _attr_translation_key = "wifi_signal"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.SIGNAL_STRENGTH
+    _attr_native_unit_of_measurement = "dBm"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: OrionDataUpdateCoordinator, device_id: str) -> None:
+        super().__init__(coordinator, device_id)
+        self._attr_unique_id = f"{device_id}_wifi_signal"
+
+    @property
+    def native_value(self) -> int | None:
+        return self.coordinator.wifi_rssi(self._device_id)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        net = self.coordinator.network_info(self._device_id)
+        if not net:
+            return None
+        attrs = {
+            "ssid": net.get("name"),
+            "ip": net.get("ip"),
+            "mac": net.get("mac"),
+            "uptime": net.get("uptime"),
+            "last_seen": net.get("last_seen"),
+        }
+        return {k: v for k, v in attrs.items() if v is not None} or None

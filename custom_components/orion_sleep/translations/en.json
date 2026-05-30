@@ -79,7 +79,8 @@
       },
       "sensor2_on_bed": {
         "name": "Sensor 2 On Bed"
-      }
+      },
+      "device_problem": { "name": "Problem" }
     },
     "switch": {
       "power": {
@@ -186,7 +187,9 @@
       },
       "sensor2_status_text": {
         "name": "Sensor 2 Status"
-      }
+      },
+      "firmware_version": { "name": "Firmware Version" },
+      "wifi_signal": { "name": "Wi-Fi Signal" }
     }
   }
 }

@@ -19,6 +19,7 @@ from typing import Any
 from homeassistant.components.climate import (
     ClimateEntity,
     ClimateEntityFeature,
+    HVACAction,
     HVACMode,
 )
 from homeassistant.config_entries import ConfigEntry
@@ -108,6 +109,19 @@ class OrionZoneClimateEntity(OrionBaseEntity, ClimateEntity):
         if self.coordinator.zone_is_on(self._device_id, self._zone_id) is True:
             return HVACMode.HEAT_COOL
         return HVACMode.OFF
+
+    @property
+    def hvac_action(self) -> HVACAction | None:
+        """Heating/idle/off from the zone's measured thermal state."""
+        if self.coordinator.zone_is_on(self._device_id, self._zone_id) is not True:
+            return HVACAction.OFF
+        state = self.coordinator.zone_thermal_state(self._device_id, self._zone_id)
+        if state is None:
+            return None
+        if "heat" in state.lower():
+            return HVACAction.HEATING
+        # Only "standby" has been observed; treat anything else (when on) as idle.
+        return HVACAction.IDLE
 
     async def async_set_temperature(self, **kwargs: Any) -> None:
         """Set this zone's target temperature.
