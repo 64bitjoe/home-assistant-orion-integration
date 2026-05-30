@@ -176,7 +176,7 @@ Entities read from coordinator:
 
 | Platform | Entity | Key / unique_id suffix | Data Source |
 |----------|--------|----------------------|-------------|
-| Climate | Bed Climate | `_climate` | Target temp from `today_sleep_schedule.bedtime_temp`, current from latest session `temperature.values[-1]` |
+| Climate | Bed Climate Zone A/B | `_climate_zone_a` / `_climate_zone_b` | One entity per zone. Target temp from live setpoint `zones[].temp`, current from measured `status.zones[].temp`, HVAC mode from `zones[].on`. Writes via `PUT /v1/devices/{serial}/live/zones/{zoneId}`. |
 | Sensor | Sleep Score | `_sleep_score` | `insights.overview.{latest_date}.score` with `quality_rating` extra attr |
 | Sensor | Total Sleep Time | `_total_sleep_time` | `session.sleep_summary.time_asleep` (formatted as "Xh Ym") |
 | Sensor | Deep Sleep Time | `_deep_sleep_time` | `session.sleep_summary.deep_sleep` |
@@ -208,7 +208,7 @@ Entities read from coordinator:
 | Number | Asleep Phase 2 Offset | `_phase_2_temp_offset` | As above, `phase_2_temp` field. |
 | Number | Wake Up Temperature Offset | `_wakeup_temp_offset` | As above, `wakeup_temp` field. |
 
-**Per device: 1 climate + 4 number + 24 sensors + 3 binary sensors + 3 switches = 35 entities**
+**Per device: 2 climate (one per zone) + 4 number + 24 sensors + 3 binary sensors + 3 switches = 36 entities**
 
 - 24 sensors = 11 insights + 5 schedule + 1 current-temp-offset + 1 live-connection + 6 per-sensor live (2× HR + 2× BR + 2× diag status_text). The current-temp-offset is accidentally registered twice (same unique_id, HA keeps one) — the 24 count reflects the logical set.
 - 4 number sliders: one per schedule-phase temperature offset (bedtime / phase_1 / phase_2 / wakeup).
@@ -338,13 +338,13 @@ Notable:
 ## Known Issues
 
 - **Duplicate entity**: `OrionCurrentTempOffsetSensor` is appended twice per device in `sensor.py:351-352` (same `unique_id`, HA will reject or warn about the second)
-- **Unused translations**: `bed_climate_left` and `bed_climate_right` defined in strings.json but no entities use them
+- **Unused translations**: none for climate — `bed_climate_zone_a` / `bed_climate_zone_b` are both in use.
 
 ## Known Limitations / Future Work
 
 - `set_temperature` endpoint not verified against live API
 - Schedule enable/disable (`PUT /v1/sleep-schedules?action=enable`) not verified
-- `async_set_hvac_mode(OFF)` and `async_turn_off()` on climate entity are no-ops (schedule-based control only)
+- Climate is now per-zone and live-driven: `async_turn_on` / `async_turn_off` / `async_set_hvac_mode` write the zone `on` flag via `PUT /v1/devices/{serial}/live/zones/{zoneId}` and take effect immediately (no longer no-ops).
 - Firmware versions are not exposed as dedicated entities yet (available in the WS payload at `status.firmware.{cb,ib}` and on each sensor block's `firmware_version` — plumb through if surfacing them becomes useful)
 - HRV values frequently null in real data
 - No way to start/stop sleep sessions via API

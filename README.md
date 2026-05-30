@@ -81,9 +81,14 @@ One device is created per paired topper. Each device exposes the entities listed
 
 ### Climate
 
+One climate entity per bed zone. Each side is controlled independently via the live per-zone endpoint.
+
 | Entity | Description |
 |---|---|
-| Bed Climate | Target temperature read from today's schedule, current temperature from the latest session's most-recent sample. HVAC mode reflects whether a session is in progress. |
+| Bed Climate Zone A | Target = live setpoint for zone A; current = measured zone-A temperature; HVAC mode reflects whether the zone is on. Turning it on/off and setting a temperature take effect immediately. |
+| Bed Climate Zone B | Same as Zone A, for the other zone. |
+
+The zone → physical side (left/right) mapping is unverified, so entities are named by zone. Rename them in the HA UI if you confirm which side is which.
 
 ### Switches
 
@@ -174,8 +179,8 @@ The raw `status_text`, `is_working`, `firmware_version`, and `hardware_version` 
 
 ## Notes and limitations
 
-- Writing to `PUT /v1/sleep-configurations/temperature` has not been verified against the live API; climate `set_temperature` and the Number sliders use `PUT /v1/sleep-schedules` instead, which is confirmed.
-- Home Assistant's climate `async_turn_off` / `async_set_hvac_mode(OFF)` are no-ops for Bed Climate — the underlying system is schedule-driven. Use the **Power** switch to actually turn the device off.
+- Climate entities are per-zone and use the verified live endpoint `PUT /v1/devices/{serial}/live/zones/{zoneId}`. Turning a zone on/off and setting its temperature take effect immediately and independently per side. The **Power** switch still controls all zones at once.
+- The Number temperature-offset sliders remain schedule-driven (`PUT /v1/sleep-schedules`); they adjust the schedule, while the climate entities set the live runtime setpoint.
 - HRV values are frequently `null` in real data; the HRV sensor will then report as `unknown`.
 - Starting and stopping sleep sessions is not supported by the API.
 - Zone splitting / merging and guest-user management are not exposed.
