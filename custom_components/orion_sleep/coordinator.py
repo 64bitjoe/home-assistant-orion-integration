@@ -199,6 +199,11 @@ class OrionDataUpdateCoordinator(DataUpdateCoordinator[dict]):
                 return sessions[-1]
         return None
 
+    def get_latest_session_for_zone(self, zone_id: str) -> dict | None:
+        """Most recent insights session for one zone, or None."""
+        insights = (self.data or {}).get("insights", {})
+        return util.latest_session_for_zone(insights.get("data"), zone_id)
+
     def get_today_schedule(self) -> dict | None:
         """Get today's sleep schedule for the current user."""
         schedules = (self.data or {}).get("schedules", {})
@@ -433,6 +438,30 @@ class OrionDataUpdateCoordinator(DataUpdateCoordinator[dict]):
         return live_state.zone_measured_temp(
             self.live_devices.get(device_id), zone_id
         )
+
+    def firmware(self, device_id: str) -> dict | None:
+        """Device firmware versions ({cb, ib}), or None."""
+        return live_state.firmware(self.live_devices.get(device_id))
+
+    def network_info(self, device_id: str) -> dict | None:
+        """Device network block (name/rssi/ip/mac/...), or None."""
+        return live_state.network_info(self.live_devices.get(device_id))
+
+    def wifi_rssi(self, device_id: str) -> int | None:
+        """Wi-Fi RSSI in dBm, or None."""
+        return live_state.wifi_rssi(self.live_devices.get(device_id))
+
+    def safety_error(self, device_id: str) -> bool | None:
+        """True if the device reports a safety error, else False/None."""
+        return live_state.safety_error(self.live_devices.get(device_id))
+
+    def led_brightness(self, device_id: str) -> int | None:
+        """LED brightness (0-100), or None."""
+        return live_state.led_brightness(self.live_devices.get(device_id))
+
+    def zone_thermal_state(self, device_id: str, zone_id: str) -> str | None:
+        """Zone thermal state (e.g. 'standby'), or None."""
+        return live_state.zone_thermal_state(self.live_devices.get(device_id), zone_id)
 
     def is_device_on(self, device_id: str) -> bool | None:
         """Check if the device is on.
