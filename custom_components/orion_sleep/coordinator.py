@@ -13,14 +13,14 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import OrionApiClient, OrionApiError, OrionAuthError, OrionConnectionError
-from . import live_state
+from . import live_state, util
 from .const import (
     CONF_INSIGHTS_DAYS,
     CONF_SCAN_INTERVAL,
     DEFAULT_INSIGHTS_DAYS,
     DEFAULT_SCAN_INTERVAL,
 )
-from .websocket import OrionWebSocketManager, OrionWsState
+from .websocket import OrionWebSocketManager, OrionWsState, _build_ssl_context
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,6 +47,11 @@ class OrionDataUpdateCoordinator(DataUpdateCoordinator[dict]):
             update_interval=timedelta(seconds=interval),
         )
         self.api_client = api_client
+        # Snapshot of the options at setup time. The config-entry update
+        # listener compares against this so that persisting refreshed
+        # tokens (which updates entry.data, not entry.options) does NOT
+        # trigger a spurious full reload of the integration.
+        self.options: dict = dict(config_entry.options)
         self.devices: list[dict] = []
         # Live snapshots keyed by device id (UUID). Populated from
         # GET /v1/devices/{serial}/live on each poll AND from
@@ -75,10 +80,19 @@ class OrionDataUpdateCoordinator(DataUpdateCoordinator[dict]):
 
     async def _async_setup(self) -> None:
         """Load one-time data: user profile, device list."""
+        # Build the WS SSL context off the event loop — ssl.create_default_
+        # context() does blocking disk I/O (loads CA certs) which Home
+        # Assistant forbids inside the loop. Done once here and shared by
+        # every per-device WebSocket client.
+        ssl_context = await self.hass.async_add_executor_job(_build_ssl_context)
+        self._ws_manager.set_ssl_context(ssl_context)
+
         try:
             self.user = await self.api_client.get_current_user()
             self.user_id = self.user.get("id", "")
-            self.devices = await self.api_client.list_devices()
+            self.devices = util.dedupe_devices_by_id(
+                await self.api_client.list_devices()
+            )
         except OrionAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except (OrionApiError, OrionConnectionError) as err:
@@ -100,7 +114,9 @@ class OrionDataUpdateCoordinator(DataUpdateCoordinator[dict]):
 
         # Re-fetch devices each poll so zone/user changes surface.
         try:
-            self.devices = await self.api_client.list_devices()
+            self.devices = util.dedupe_devices_by_id(
+                await self.api_client.list_devices()
+            )
         except OrionAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except (OrionApiError, OrionConnectionError) as err:

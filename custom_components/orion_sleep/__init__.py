@@ -68,7 +68,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update — reload the integration."""
+    """Reload the integration only when the options actually changed.
+
+    ``add_update_listener`` fires on *any* entry update, including the
+    token-refresh callback persisting new tokens to ``entry.data`` via
+    ``async_update_entry``. Reloading on those data-only updates tears the
+    integration down mid-operation (e.g. right after a service call that
+    triggered a token refresh), so we reload only when ``entry.options``
+    differs from the snapshot the running coordinator was set up with.
+    """
+    coordinator: OrionDataUpdateCoordinator | None = getattr(
+        entry, "runtime_data", None
+    )
+    if coordinator is not None and entry.options == coordinator.options:
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 

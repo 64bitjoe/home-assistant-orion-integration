@@ -51,6 +51,11 @@ MessageHandler = Callable[[str, str, dict[str, Any]], None]
 # one of the :class:`OrionWsState` class-level constants.
 StateHandler = Callable[[str, str], None]
 
+# Hard cap on how long a single client's shutdown may take. Without a
+# bound, awaiting a task stuck mid-connect/receive can hang the whole
+# config-entry unload ("async_shutdown() did not complete in time").
+WS_STOP_TIMEOUT = 5.0
+
 
 class OrionWsState:
     """Connection state values surfaced to the coordinator.
@@ -92,6 +97,7 @@ class OrionWebSocketClient:
         serial_number: str,
         on_message: MessageHandler,
         on_state_change: StateHandler | None = None,
+        ssl_context: ssl.SSLContext | None = None,
     ) -> None:
         self._session = session
         self._api_client = api_client
@@ -99,7 +105,11 @@ class OrionWebSocketClient:
         self._on_message = on_message
         self._on_state_change = on_state_change
 
-        self._ssl_ctx = _build_ssl_context()
+        # The SSL context is normally built off the event loop by the
+        # coordinator and passed in (``ssl.create_default_context()`` does
+        # blocking disk I/O, which Home Assistant forbids in the loop). The
+        # fallback only runs if no context was supplied.
+        self._ssl_ctx = ssl_context if ssl_context is not None else _build_ssl_context()
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self._ws: aiohttp.ClientWebSocketResponse | None = None
@@ -140,18 +150,33 @@ class OrionWebSocketClient:
         self._task = asyncio.create_task(self._run(), name=f"orion_ws[{self._serial}]")
 
     async def async_stop(self) -> None:
-        """Stop the background loop and close the socket cleanly."""
+        """Stop the background loop and close the socket cleanly.
+
+        The task is always cancelled and awaited under a timeout. Relying
+        on ``_stop_event`` + ``ws.close()`` alone is not enough: if the
+        task is stuck mid-connect (TLS handshake / Upgrade) or blocked in
+        ``ws.receive()``, awaiting it could hang indefinitely and stall
+        the config-entry unload. Cancellation guarantees forward progress;
+        the timeout guarantees we return even if cancellation is ignored.
+        """
         self._stop_event.set()
         ws = self._ws
         if ws is not None and not ws.closed:
             try:
-                await ws.close(code=1001, message=b"client shutdown")
-            except Exception:  # noqa: BLE001 - best effort
+                await asyncio.wait_for(
+                    ws.close(code=1001, message=b"client shutdown"),
+                    timeout=WS_STOP_TIMEOUT,
+                )
+            except Exception:  # noqa: BLE001 - best effort (incl. TimeoutError)
                 pass
-        if self._task is not None:
+        task = self._task
+        if task is not None:
+            task.cancel()
             try:
-                await self._task
-            except asyncio.CancelledError:
+                await asyncio.wait_for(task, timeout=WS_STOP_TIMEOUT)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            except Exception:  # noqa: BLE001 - best effort
                 pass
             self._task = None
         self._set_state(OrionWsState.STOPPED)
@@ -385,6 +410,13 @@ class OrionWebSocketManager:
         self._on_message = on_message
         self._on_state_change = on_state_change
         self._clients: dict[str, OrionWebSocketClient] = {}
+        # Built off-loop by the coordinator (see set_ssl_context) and
+        # shared by every client to avoid blocking the event loop.
+        self._ssl_context: ssl.SSLContext | None = None
+
+    def set_ssl_context(self, ssl_context: ssl.SSLContext) -> None:
+        """Provide the shared SSL context (built off the event loop)."""
+        self._ssl_context = ssl_context
 
     def sync_to_serials(self, serials: list[str]) -> None:
         """Start clients for new serials; stop clients for removed ones.
@@ -413,6 +445,7 @@ class OrionWebSocketManager:
                 serial,
                 on_message=self._on_message,
                 on_state_change=self._on_state_change,
+                ssl_context=self._ssl_context,
             )
             client.start()
             self._clients[serial] = client
