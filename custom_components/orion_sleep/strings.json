@@ -59,14 +59,11 @@
   },
   "entity": {
     "climate": {
-      "bed_climate": {
-        "name": "Bed Climate"
+      "bed_climate_zone_a": {
+        "name": "Bed Climate Zone A"
       },
-      "bed_climate_left": {
-        "name": "Bed Climate Left"
-      },
-      "bed_climate_right": {
-        "name": "Bed Climate Right"
+      "bed_climate_zone_b": {
+        "name": "Bed Climate Zone B"
       }
     },
     "binary_sensor": {
