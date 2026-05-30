@@ -4,12 +4,14 @@
 
 Custom [Home Assistant](https://www.home-assistant.io/) integration for the **Orion Sleep** smart mattress topper. Control bed temperature, react to occupancy in real time, monitor sleep metrics, and manage sleep schedules — all from your Home Assistant dashboard.
 
+> **Fork:** This is a fork of [tdickman/home-assistant-orion-integration](https://github.com/tdickman/home-assistant-orion-integration), maintained at [64bitjoe/home-assistant-orion-integration](https://github.com/64bitjoe/home-assistant-orion-integration). It adds independent per-zone climate control (one climate entity per side of the bed).
+
 ## Features
 
 - **Live WebSocket stream** — Temperature, power, and sensor readings update in realtime when the bed or the Orion app changes anything; no need to wait for the next poll.
 - **Bed occupancy** — Per-topper-sensor binary sensors track who is on the bed. Latency varies; expect ~30 s to 1 minute after sitting down or leaving before the sensor flips (the topper itself is slow to decide).
 - **Live heart rate and breath rate** — Per-sensor realtime readings from the topper (distinct from the post-session averages).
-- **Climate control** — Target bed temperature per-zone, with the current measured temperature pulled from the latest session.
+- **Per-zone climate control** — One climate entity per side of the bed (Zone A / Zone B). Each side's target and current temperature, and on/off, are controlled independently in real time via the live per-zone endpoint.
 - **Power and presence switches** — One-click power via the canonical `/v1/devices/{serial}/live` endpoint, plus an Away Mode switch that reads the authoritative presence signal from `zones[*].user`.
 - **Sleep insight sensors** — Sleep score, HRV, heart rate, breath rate, sleep-stage durations (awake / light / deep / REM), total time asleep, restless time, and body-movement rate for your most recent session.
 - **Schedule sensors and sliders** — Today's bedtime, wake-up time, duration, and target temperatures, plus Number sliders for adjusting the four schedule-phase temperature offsets (-10 … +10, app-style).
@@ -26,9 +28,9 @@ Custom [Home Assistant](https://www.home-assistant.io/) integration for the **Or
 
 2. Click the button below to add this repository:
 
-   [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=tdickman&repository=home-assistant-orion-integration&category=integration)
+   [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=64bitjoe&repository=home-assistant-orion-integration&category=integration)
 
-   Or manually add the custom repository: go to **HACS > Integrations > three-dot menu > Custom repositories**, paste `https://github.com/tdickman/home-assistant-orion-integration` and select **Integration** as the category.
+   Or manually add the custom repository: go to **HACS > Integrations > three-dot menu > Custom repositories**, paste `https://github.com/64bitjoe/home-assistant-orion-integration` and select **Integration** as the category.
 
 3. Search for "Orion Sleep" in HACS and download it.
 
