@@ -158,6 +158,10 @@ class OrionWebSocketClient:
         ``ws.receive()``, awaiting it could hang indefinitely and stall
         the config-entry unload. Cancellation guarantees forward progress;
         the timeout guarantees we return even if cancellation is ignored.
+
+        Worst case is ~2x ``WS_STOP_TIMEOUT`` (the ws.close wait and the
+        task wait run sequentially). The manager stops clients
+        concurrently, so this bound is per-client, not cumulative.
         """
         self._stop_event.set()
         ws = self._ws

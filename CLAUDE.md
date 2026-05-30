@@ -12,7 +12,9 @@ A HACS-compatible Home Assistant custom integration (`custom_components/orion_sl
 
 ## Commands
 
-There is no test suite, linter config, or build step in this repo. Verification is done against a live account using the CLI tool:
+There is a small `pytest` suite covering the dependency-free helper modules (`custom_components/orion_sleep/live_state.py`, `util.py`) — run it with `python3 -m pytest tests/ -q`. These modules import nothing from Home Assistant (which isn't installed locally), so they're the only unit-testable surface; the HA-coupled code is verified by `py_compile` and manual testing. There is no linter config or build step.
+
+The rest of verification is done against a live account using the CLI tool:
 
 ```bash
 python orion_info.py --email user@example.com   # or --phone 15132015808
