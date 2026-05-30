@@ -13,6 +13,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import OrionApiClient, OrionApiError, OrionAuthError, OrionConnectionError
+from . import live_state
 from .const import (
     CONF_INSIGHTS_DAYS,
     CONF_SCAN_INTERVAL,
@@ -394,6 +395,28 @@ class OrionDataUpdateCoordinator(DataUpdateCoordinator[dict]):
                     return False
             return True
         return None
+
+    def zone_setpoint(self, device_id: str, zone_id: str) -> float | None:
+        """Target temperature (setpoint, °C) for one zone, or None.
+
+        Reads the live per-zone setpoint fed by the WebSocket stream and
+        backstopped by ``GET /v1/devices/{serial}/live``.
+        """
+        return live_state.zone_setpoint(self.live_devices.get(device_id), zone_id)
+
+    def zone_is_on(self, device_id: str, zone_id: str) -> bool | None:
+        """Power state for one zone, or None if no live state yet."""
+        return live_state.zone_is_on(self.live_devices.get(device_id), zone_id)
+
+    def zone_measured_temp(self, device_id: str, zone_id: str) -> float | None:
+        """Measured current temperature (°C) for one zone, or None.
+
+        From ``live.status.zones[].temp`` — the real per-zone reading,
+        distinct from the setpoint at ``live.zones[].temp``.
+        """
+        return live_state.zone_measured_temp(
+            self.live_devices.get(device_id), zone_id
+        )
 
     def is_device_on(self, device_id: str) -> bool | None:
         """Check if the device is on.
