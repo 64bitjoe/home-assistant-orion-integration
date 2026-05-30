@@ -82,7 +82,7 @@ class OrionZoneClimateEntity(OrionBaseEntity, ClimateEntity):
         zone_id: str,
         device: dict,
     ) -> None:
-        super().__init__(coordinator, device_id)
+        super().__init__(coordinator, device_id, zone_id=zone_id)
         self._serial = serial
         self._zone_id = zone_id
         self._attr_unique_id = f"{device_id}_climate_{zone_id}"

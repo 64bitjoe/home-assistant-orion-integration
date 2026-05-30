@@ -400,7 +400,7 @@ class OrionZoneInsightSensor(OrionBaseEntity, SensorEntity):
         zone_label: str,
         description: OrionSensorEntityDescription,
     ) -> None:
-        super().__init__(coordinator, device_id)
+        super().__init__(coordinator, device_id, zone_id=zone_id)
         self.entity_description = description
         self._zone_id = zone_id
         self._attr_unique_id = f"{device_id}_{description.key}_{zone_id}"
@@ -504,7 +504,7 @@ class OrionCurrentTempOffsetSensor(OrionBaseEntity, SensorEntity):
         zone_id: str,
         zone_label: str,
     ) -> None:
-        super().__init__(coordinator, device_id)
+        super().__init__(coordinator, device_id, zone_id=zone_id)
         self._zone_id = zone_id
         self._attr_unique_id = f"{device_id}_current_temp_offset_{zone_id}"
         self._attr_translation_placeholders = {"zone": zone_label}

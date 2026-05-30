@@ -6,6 +6,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DEFAULT_RELATIVE_TEMP_TABLE, DOMAIN
+from . import util
 from .coordinator import OrionDataUpdateCoordinator
 
 
@@ -18,20 +19,34 @@ class OrionBaseEntity(CoordinatorEntity[OrionDataUpdateCoordinator]):
         self,
         coordinator: OrionDataUpdateCoordinator,
         device_id: str,
+        zone_id: str | None = None,
     ) -> None:
         super().__init__(coordinator)
         self._device_id = device_id
+        # When set, this entity belongs to a per-side sub-device that nests
+        # under the hub (device_id) via via_device. When None, the entity
+        # lives directly on the hub device.
+        self._zone_id = zone_id
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device info for this entity."""
+        """Return device info: the hub, or a per-side sub-device."""
         device = self._get_device()
+        if self._zone_id is None:
+            return DeviceInfo(
+                identifiers={(DOMAIN, self._device_id)},
+                name=device.get("name", "Orion Sleep"),
+                manufacturer="Orion Longevity",
+                model=device.get("model", "Orion Sleep"),
+                serial_number=device.get("serial_number"),
+            )
+        desc = util.side_device_descriptor(self._device_id, self._zone_id)
         return DeviceInfo(
-            identifiers={(DOMAIN, self._device_id)},
-            name=device.get("name", "Orion Sleep"),
+            identifiers={(DOMAIN, desc["identifier"])},
+            via_device=(DOMAIN, desc["via"]),
+            name=desc["name"],
             manufacturer="Orion Longevity",
             model=device.get("model", "Orion Sleep"),
-            serial_number=device.get("serial_number"),
         )
 
     def _get_device(self) -> dict:

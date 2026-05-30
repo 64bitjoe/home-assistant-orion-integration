@@ -80,7 +80,7 @@ class OrionSessionActiveBinarySensor(OrionBaseEntity, BinarySensorEntity):
         zone_id: str,
         zone_label: str,
     ) -> None:
-        super().__init__(coordinator, device_id)
+        super().__init__(coordinator, device_id, zone_id=zone_id)
         self._zone_id = zone_id
         self._attr_unique_id = f"{device_id}_session_active_{zone_id}"
         self._attr_translation_placeholders = {"zone": zone_label}
