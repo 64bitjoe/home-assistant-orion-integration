@@ -98,3 +98,56 @@ def test_non_bool_on_is_unknown():
 
 def test_measured_temp_malformed_status_zones():
     assert live_state.zone_measured_temp({"status": {"zones": "nonsense"}}, "zone_a") is None
+
+
+DIAG = {
+    "led_brightness": 60,
+    "status": {
+        "firmware": {"cb": "1.2.3", "ib": "4.5.6"},
+        "network": {"name": "MyWifi", "rssi": -55, "ip": "192.168.1.9",
+                    "mac": "aa:bb", "uptime": 100, "last_seen": 5},
+        "safety": {"error": False, "error_codes": [], "error_descriptions": []},
+        "zones": [{"id": "zone_a", "temp": 20.0, "thermal_state": "standby"}],
+    },
+}
+
+
+def test_firmware():
+    assert live_state.firmware(DIAG) == {"cb": "1.2.3", "ib": "4.5.6"}
+    assert live_state.firmware(None) is None
+    assert live_state.firmware({}) is None
+
+
+def test_network_info_and_rssi():
+    assert live_state.network_info(DIAG)["name"] == "MyWifi"
+    assert live_state.wifi_rssi(DIAG) == -55
+    assert live_state.wifi_rssi({}) is None
+    assert live_state.wifi_rssi({"status": {"network": {"rssi": "x"}}}) is None
+
+
+def test_safety_error_false_when_no_error():
+    assert live_state.safety_error(DIAG) is False
+
+
+def test_safety_error_true_on_flag_or_codes():
+    assert live_state.safety_error({"status": {"safety": {"error": True}}}) is True
+    assert live_state.safety_error(
+        {"status": {"safety": {"error": False, "error_codes": ["E1"]}}}
+    ) is True
+
+
+def test_safety_error_none_when_absent():
+    assert live_state.safety_error({"status": {}}) is None
+    assert live_state.safety_error(None) is None
+
+
+def test_led_brightness():
+    assert live_state.led_brightness(DIAG) == 60
+    assert live_state.led_brightness({}) is None
+    assert live_state.led_brightness({"led_brightness": "x"}) is None
+
+
+def test_zone_thermal_state():
+    assert live_state.zone_thermal_state(DIAG, "zone_a") == "standby"
+    assert live_state.zone_thermal_state(DIAG, "zone_b") is None
+    assert live_state.zone_thermal_state(None, "zone_a") is None
