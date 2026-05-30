@@ -14,7 +14,6 @@ The live endpoint path uses the device ``serial_number``, NOT its UUID.
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from homeassistant.components.climate import (
@@ -29,8 +28,6 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .coordinator import OrionDataUpdateCoordinator
 from .entity import OrionBaseEntity
-
-_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(
