@@ -227,10 +227,10 @@ Entities read from coordinator:
 | Number | LED Brightness | `_led_brightness` | 0–100. Reads live `led_brightness` via coordinator; writes via `device_action(device_id, "device_led_brightness", value=int)`. **Unverified on-wire.** |
 | Button | Reboot | `_reboot` | Reboots via `device_action(device_id, "device_reboot")`. **Unverified on-wire.** |
 
-**Per device: 2 climate + 6 number + 1 button + 37 sensors + 5 binary sensors + 3 switches = 54 entities**
+**Per device: 2 climate + 5 number + 1 button + 37 sensors + 5 binary sensors + 3 switches = 53 entities**
 
 - 2 climate: one per zone (zone_a / zone_b), each with HVAC action.
-- 6 number: 4 schedule-phase offsets (bedtime / phase_1 / phase_2 / wakeup) + 1 LED brightness.
+- 5 number: 4 schedule-phase offsets (bedtime / phase_1 / phase_2 / wakeup) + 1 LED brightness.
 - 1 button: Reboot.
 - 37 sensors = 22 per-zone insights (11 metrics × 2 zones: total/deep/rem/light sleep, awake, HR, BR, HRV, movement, restless, current-temp-offset) + 1 sleep score (device-level) + 5 schedule + 1 live-connection (WS state) + 2 diagnostics (firmware + wifi) + 6 per-sensor live (2× HR + 2× BR + 2× diag status_text).
 - 5 binary sensors: 2× Sleep Session Active (per zone) + 2× On Bed (sensor1/sensor2) + 1 Problem.
