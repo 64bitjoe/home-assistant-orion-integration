@@ -49,3 +49,44 @@ def test_dedupe_skips_non_dict_entries():
 def test_dedupe_none_and_empty():
     assert util.dedupe_devices_by_id(None) == []
     assert util.dedupe_devices_by_id([]) == []
+
+
+INSIGHTS = {
+    "2026-05-28": {
+        "sessions": [
+            {"session_id": "s1", "zone_id": "zone_a", "hrv": {"average": 40}},
+            {"session_id": "s2", "zone_id": "zone_b", "hrv": {"average": 55}},
+        ]
+    },
+    "2026-05-29": {
+        "sessions": [
+            {"session_id": "s3", "zone_id": "zone_a", "hrv": {"average": 42}},
+        ]
+    },
+}
+
+
+def test_latest_session_for_zone_newest_date():
+    s = util.latest_session_for_zone(INSIGHTS, "zone_a")
+    assert s["session_id"] == "s3"
+
+
+def test_latest_session_for_zone_falls_back_to_older_date():
+    s = util.latest_session_for_zone(INSIGHTS, "zone_b")
+    assert s["session_id"] == "s2"
+
+
+def test_latest_session_for_zone_no_match():
+    assert util.latest_session_for_zone(INSIGHTS, "zone_c") is None
+
+
+def test_latest_session_for_zone_empty_and_malformed():
+    assert util.latest_session_for_zone(None, "zone_a") is None
+    assert util.latest_session_for_zone({}, "zone_a") is None
+    assert util.latest_session_for_zone({"d": {"sessions": "x"}}, "zone_a") is None
+    assert util.latest_session_for_zone({"d": {}}, "zone_a") is None
+
+
+def test_latest_session_for_zone_ignores_sessions_without_zone_id():
+    data = {"2026-05-29": {"sessions": [{"session_id": "x"}]}}
+    assert util.latest_session_for_zone(data, "zone_a") is None

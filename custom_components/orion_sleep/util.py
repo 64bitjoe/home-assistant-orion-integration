@@ -34,3 +34,29 @@ def dedupe_devices_by_id(devices: object) -> list[dict]:
             seen.add(dev_id)
         result.append(device)
     return result
+
+
+def latest_session_for_zone(insights_data: object, zone_id: str) -> dict | None:
+    """Most recent insights session whose ``zone_id`` matches, or None.
+
+    ``insights_data`` is the coordinator's ``data["insights"]["data"]`` mapping
+    of ``{date_str: {"sessions": [...]}}``. Dates are iterated newest-first;
+    within a date the last matching session wins. Defensive against missing /
+    malformed structures so a partial API response can't raise.
+    """
+    if not isinstance(insights_data, dict):
+        return None
+    for date_key in sorted(insights_data.keys(), reverse=True):
+        day = insights_data.get(date_key)
+        if not isinstance(day, dict):
+            continue
+        sessions = day.get("sessions")
+        if not isinstance(sessions, list):
+            continue
+        match = None
+        for session in sessions:
+            if isinstance(session, dict) and session.get("zone_id") == zone_id:
+                match = session
+        if match is not None:
+            return match
+    return None
