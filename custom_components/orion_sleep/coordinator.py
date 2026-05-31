@@ -9,16 +9,22 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import OrionApiClient, OrionApiError, OrionAuthError, OrionConnectionError
 from . import live_state, util
 from .const import (
+    CONF_ACCESS_TOKEN,
+    CONF_EXPIRES_AT,
     CONF_INSIGHTS_DAYS,
+    CONF_PARTNER,
+    CONF_REFRESH_TOKEN,
     CONF_SCAN_INTERVAL,
     DEFAULT_INSIGHTS_DAYS,
     DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
 )
 from .websocket import OrionWebSocketManager, OrionWsState, _build_ssl_context
 
@@ -47,6 +53,13 @@ class OrionDataUpdateCoordinator(DataUpdateCoordinator[dict]):
             update_interval=timedelta(seconds=interval),
         )
         self.api_client = api_client
+        # Optional second client for a linked partner account. Used ONLY to
+        # fetch that account's insights (the partner's per-side sleep stats);
+        # never for control. None when no partner is linked.
+        self._partner_client: OrionApiClient | None = None
+        partner = config_entry.data.get(CONF_PARTNER)
+        if partner:
+            self._partner_client = self._build_partner_client(partner)
         # Snapshot of the options at setup time. The config-entry update
         # listener compares against this so that persisting refreshed
         # tokens (which updates entry.data, not entry.options) does NOT
@@ -172,17 +185,74 @@ class OrionDataUpdateCoordinator(DataUpdateCoordinator[dict]):
         except (OrionApiError, OrionConnectionError) as err:
             _LOGGER.warning("Failed to fetch sleep schedules: %s", err)
 
+        insights_days = self.config_entry.options.get(
+            CONF_INSIGHTS_DAYS, DEFAULT_INSIGHTS_DAYS
+        )
         try:
-            insights_days = self.config_entry.options.get(
-                CONF_INSIGHTS_DAYS, DEFAULT_INSIGHTS_DAYS
-            )
             data["insights"] = await self.api_client.get_insights(days=insights_days)
         except OrionAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except (OrionApiError, OrionConnectionError) as err:
             _LOGGER.warning("Failed to fetch insights: %s", err)
 
+        # Partner insights — best-effort, never breaks the primary poll.
+        if self._partner_client is not None:
+            try:
+                await self._partner_client.ensure_valid_token()
+                data["insights_partner"] = await self._partner_client.get_insights(
+                    days=insights_days
+                )
+                ir.async_delete_issue(self.hass, DOMAIN, "partner_reauth")
+            except OrionAuthError:
+                data["insights_partner"] = {}
+                ir.async_create_issue(
+                    self.hass,
+                    DOMAIN,
+                    "partner_reauth",
+                    is_fixable=False,
+                    severity=ir.IssueSeverity.ERROR,
+                    translation_key="partner_reauth",
+                )
+                _LOGGER.warning(
+                    "Orion partner account auth failed; re-link it from the "
+                    "integration's Configure menu"
+                )
+            except (OrionApiError, OrionConnectionError) as err:
+                _LOGGER.warning("Failed to fetch partner insights: %s", err)
+                data["insights_partner"] = (self.data or {}).get(
+                    "insights_partner", {}
+                )
+
         return data
+
+    def _build_partner_client(self, partner: dict) -> OrionApiClient:
+        """Create the partner insights client from a stored partner block."""
+        client = OrionApiClient(
+            session=async_get_clientsession(self.hass),
+            access_token=partner.get(CONF_ACCESS_TOKEN),
+            refresh_token=partner.get(CONF_REFRESH_TOKEN),
+            expires_at=partner.get(CONF_EXPIRES_AT, 0),
+        )
+        client.set_token_refresh_callback(self._on_partner_token_refresh)
+        return client
+
+    @callback
+    def _on_partner_token_refresh(
+        self, access_token: str, refresh_token: str, expires_at: float
+    ) -> None:
+        """Persist refreshed partner tokens back into entry.data[CONF_PARTNER]."""
+        entry = self.config_entry
+        partner = dict(entry.data.get(CONF_PARTNER) or {})
+        partner.update(
+            {
+                CONF_ACCESS_TOKEN: access_token,
+                CONF_REFRESH_TOKEN: refresh_token,
+                CONF_EXPIRES_AT: expires_at,
+            }
+        )
+        self.hass.config_entries.async_update_entry(
+            entry, data={**entry.data, CONF_PARTNER: partner}
+        )
 
     def get_latest_session(self) -> dict | None:
         """Get the most recent sleep session from insights data."""
@@ -200,9 +270,14 @@ class OrionDataUpdateCoordinator(DataUpdateCoordinator[dict]):
         return None
 
     def get_latest_session_for_zone(self, zone_id: str) -> dict | None:
-        """Most recent insights session for one zone, or None."""
-        insights = (self.data or {}).get("insights", {})
-        return util.latest_session_for_zone(insights.get("data"), zone_id)
+        """Most recent insights session for one zone (primary, then partner)."""
+        data = self.data or {}
+        primary = (data.get("insights") or {}).get("data")
+        session = util.latest_session_for_zone(primary, zone_id)
+        if session is not None:
+            return session
+        partner = (data.get("insights_partner") or {}).get("data")
+        return util.latest_session_for_zone(partner, zone_id)
 
     def get_today_schedule(self) -> dict | None:
         """Get today's sleep schedule for the current user."""
