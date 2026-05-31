@@ -21,6 +21,7 @@ CONF_AUTH_VALUE = "auth_value"  # the email address or phone number
 CONF_ACCESS_TOKEN = "access_token"
 CONF_REFRESH_TOKEN = "refresh_token"
 CONF_EXPIRES_AT = "expires_at"  # Unix timestamp
+CONF_PARTNER = "partner"  # nested dict of a linked partner account's tokens
 
 # Options flow keys
 CONF_SCAN_INTERVAL = "scan_interval"  # polling interval in seconds
