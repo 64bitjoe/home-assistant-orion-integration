@@ -420,6 +420,9 @@ class OrionSleepOptionsFlow(OptionsFlow):
                     self._config_entry,
                     data={**self._config_entry.data, CONF_PARTNER: partner},
                 )
+                # Reload is load-bearing: the coordinator builds its partner
+                # client once in __init__ from entry.data, and a data-only
+                # update won't trigger the (options-only) reload guard.
                 await self.hass.config_entries.async_reload(
                     self._config_entry.entry_id
                 )
