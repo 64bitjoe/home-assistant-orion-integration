@@ -67,6 +67,12 @@ After setup, you can configure:
 
 Go to **Settings > Devices & Services > Orion Sleep > Configure** to change these.
 
+### Two sleepers (partner account)
+
+Sleep metrics are per Orion account, so a second person with their **own** Orion account only shows their sleep stats if you link that account. Go to **Settings > Devices & Services > Orion Sleep > Configure > Link partner account** and complete the same email/phone + code login for the partner. Their side's sensors (HRV, heart rate, sleep stages, etc.) then populate after their next processed sleep session.
+
+This is **stats only** — all control (climate, power, schedule) stays on your primary account. Remove the partner anytime via **Configure > Remove partner account**. If the partner login expires, you'll get a repair notification to re-link it.
+
 ## Real-time updates
 
 In addition to the REST poll, the integration opens one WebSocket per device to `wss://live.api1.orionbed.com/device/<serial_number>` and merges every `live_device.snapshot` / `live_device.update` frame into the coordinator state. This means:

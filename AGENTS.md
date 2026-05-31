@@ -131,7 +131,8 @@ https://api1.orionbed.com
 - **Token persistence**: Refresh callback updates `config_entry.data` so tokens survive HA restarts
 - **Error handling**: Each polled endpoint has independent try/except — one failing doesn't break the others. Auth errors (`OrionAuthError`) always raise `ConfigEntryAuthFailed` to trigger re-auth flow.
 - **Auth flow**: Three-step config flow (pick method -> enter email/phone -> enter verification code) + re-auth support
-- **Options flow**: Configurable `scan_interval` (60-3600s) and `insights_days` (1-30 days)
+- **Options flow**: A menu — settings (`scan_interval` 60-3600s, `insights_days` 1-30 days) plus link/remove a partner account
+- **Partner account (optional)**: `entry.data[CONF_PARTNER]` holds a second account's tokens. The coordinator builds a second `OrionApiClient` (`_partner_client`) used ONLY for `get_insights`, stored at `data["insights_partner"]`. `get_latest_session_for_zone` searches primary then partner, so each account's sessions populate their own zone. Linked/removed via the Options flow (reloads the entry); partner auth failure raises the `partner_reauth` repair issue and degrades that side to unknown without disrupting the primary.
 - **Temperature conversion**: `OrionBaseEntity` provides `_celsius_to_offset()` and `_offset_to_celsius()` using per-device lookup table (falls back to `DEFAULT_RELATIVE_TEMP_TABLE` in `const.py`)
 - **Coordinator helpers** (entities read state through these, not raw dicts):
   - `get_latest_session_for_zone(zone_id)` — per-zone latest insight session (wraps `util.latest_session_for_zone`)

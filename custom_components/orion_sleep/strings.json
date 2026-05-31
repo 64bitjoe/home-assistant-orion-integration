@@ -50,11 +50,55 @@
     "step": {
       "init": {
         "title": "Orion Sleep Options",
+        "menu_options": {
+          "settings": "Settings (polling, insights days)",
+          "link_partner": "Link partner account",
+          "remove_partner": "Remove partner account"
+        }
+      },
+      "settings": {
+        "title": "Orion Sleep Settings",
         "data": {
           "scan_interval": "Polling interval (seconds)",
           "insights_days": "Days of sleep insights to fetch"
         }
+      },
+      "link_partner": {
+        "title": "Link Partner Account",
+        "description": "Add a second Orion account so the other side of the bed shows its sleep stats. Control stays on your account.",
+        "data": { "auth_method": "Login method" }
+      },
+      "partner_email": {
+        "title": "Partner Email",
+        "description": "Enter the partner's Orion account email. A verification code will be sent to them.",
+        "data": { "email": "Email address" }
+      },
+      "partner_phone": {
+        "title": "Partner Phone",
+        "description": "Enter the partner's Orion phone number (11 digits, e.g. 15552221234). A verification code will be sent to them.",
+        "data": { "phone": "Phone number" }
+      },
+      "partner_verify": {
+        "title": "Enter Partner Verification Code",
+        "description": "Enter the verification code sent to the partner account.",
+        "data": { "code": "Verification code" }
+      },
+      "remove_partner": {
+        "title": "Remove Partner Account",
+        "description": "Unlink the partner account. Their side's sleep stats will stop updating."
       }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Orion Sleep API",
+      "invalid_code": "Invalid verification code",
+      "invalid_phone": "Phone number must be 11 digits including the leading 1 (e.g. 15551234567).",
+      "unknown": "An unexpected error occurred"
+    }
+  },
+  "issues": {
+    "partner_reauth": {
+      "title": "Orion partner account needs re-linking",
+      "description": "The linked partner Orion account can no longer authenticate. Re-link it from Settings > Devices & Services > Orion Sleep > Configure > Link partner account."
     }
   },
   "entity": {
